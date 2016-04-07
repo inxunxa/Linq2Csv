@@ -4,7 +4,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 // This file is part of Linq2Csv and is dual licensed under MS-PL and Apache 2.0.
-// www.Linq2csv.com
+// https://github.com/inxunxa/Linq2Csv
 
 using System;
 using System.Collections.Generic;
