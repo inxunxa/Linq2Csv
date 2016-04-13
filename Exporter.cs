@@ -23,13 +23,28 @@ namespace Linq2Csv
     {
         // class needed fields
         private StreamWriter _writer;
-        private string _separator = ",";
-        private List<string> _header = new List<string>();
+        
+        private List<string> _csvHeader = new List<string>();
+        private List<string> _binaryHeader = new List<string>();
         private List<List<object>> _csvRows = new List<List<object>>();
+        private List<List<string>> _binaryRows = new List<List<string>>();
+
+        private int _rowsPerObject;
+        private bool _csvHeaderWriten;
+        private bool _binaryHeaderWriten;
 
 
-        private int _rowsPerObject = 1;
-        private bool _headerWriten;
+        /// <summary>
+        /// The string that will be used to separete the columns
+        /// </summary>
+        public string Separator { get; set; } =  ",";
+
+        /// <summary>
+        /// How enumerable properties will be converted.
+        /// <value>True</value> will create column(s) for the elements in the Enumerable property
+        /// <value>False</value> will create a new row for each element in the Enumerable property
+        /// </summary>
+        public bool TreatEnumerablesAsColumns { get; set; } = true;
 
         /// <summary>
         /// Map an object (without anotations) to Rows
@@ -50,7 +65,7 @@ namespace Linq2Csv
                     for (int i = 0; i < elems.Count; i++)
                     {
                         // element in elements will have the same GUID            
-                        if (i > 0) NextLineAutoMap(true);
+                        if (i > 0) NextLine(true);
                         AutoMap(elems[i]);
                     }                    
                 }
@@ -69,12 +84,13 @@ namespace Linq2Csv
                 }
             }
         }
-        
+
         /// <summary>
         /// Maps and object to rows using the DataAnnotations
         /// </summary>
         /// <param name="entity">The objecto to be mapped</param>
-        internal void Map(Object entity)
+        /// <param name="enumerableColumnId">The string to append to repeated columns (by enumerables) applicable only when <c>TreatEnumerablesAsColumns</c> is True</param>
+        internal void Map(Object entity, string enumerableColumnId = "")
         {
             if (entity == null || entity.GetType().GetCustomAttribute<NonExportable>() != null) return;
             Type objType = entity.GetType();
@@ -89,9 +105,15 @@ namespace Linq2Csv
                 {
                     for (int i = 0; i < elems.Count; i++)
                     {
-                        // element in elements will have the same GUID                    
-                        if (i > 0) NextLineAutoMap(true); // add new line only after the first element                        
-                        Map(elems[i]);
+                        if (TreatEnumerablesAsColumns)
+                        {
+                            Map(elems[i], i.ToString());
+                        }
+                        else
+                        {
+                            if (i > 0) NextLine(true); // add new line only after the first element                        
+                            Map(elems[i]);
+                        }                              
                     }
                 }
                 else
@@ -99,18 +121,30 @@ namespace Linq2Csv
                     if (PrimitiveTypes.IsPrimitive(property.PropertyType))
                     {
                         var attribute = property.GetCustomAttribute<Exportable>();
-                        var name = attribute != null
-                            ? attribute.Name
-                            : property.DeclaringType?.Name + "." + property.Name;
+                        var name = attribute?.Name ?? property.DeclaringType?.Name + "." + property.Name;
+                        name += enumerableColumnId;
+                        var globalPosition = attribute?.GlobalOrder ?? -1;
 
                         // Bottom node reached, consider value
-                        AddRecord(name, propValue);
+                        AddRecord(name, propValue, globalPosition);
                     }
                     else
                     {
                         // Brach node found, iterate through childs
-                        Map(propValue);
+                        Map(propValue, enumerableColumnId);
                     }
+                }
+            }
+        }
+
+        private void BinarizeRows(int firstColumnsToSkip)
+        {
+            foreach (var csvRow in _csvRows)
+            {
+                NextBinaryLine();
+                for (int j = 0; j < csvRow.Count; j++)
+                {
+                    AddBinaryRecord(_csvHeader[j], csvRow[j], !(j < firstColumnsToSkip));
                 }
             }
         }
@@ -122,21 +156,18 @@ namespace Linq2Csv
         /// <param name="filePath">The full file name to save the resulting csv file</param>
         public void GenerateCsv(Object entity, string filePath)
         {
-            _separator = ",";
+            Separator = ",";
             _writer = new StreamWriter(filePath);
 
             // verify if the object is a collection
-            // if so, iterate trough elements
             var objs = entity as IList;
             if (objs != null)
             {
                 foreach (var obj in objs)
                 {
-                 //   if (obj.GetType().GetCustomAttribute<ExportableClass>() != null)
-                 //   {
-                        Map(obj);
-                        FlushObject();
-                 //   }
+                    Map(obj);
+                    // flush each object to same a little memory
+                    FlushObject();                                        
                 }
             }
             else
@@ -148,13 +179,47 @@ namespace Linq2Csv
         }
 
         /// <summary>
+        /// Generates a binary dataset file with using the DataAnnotation as a guide. See: 
+        /// <seealso cref="http://github.com/inxunxa/Linq2Csv"/> for more details
+        /// </summary>
+        /// <param name="entity">The object or List (IList implementation) of objects to writte</param>
+        /// <param name="filePath">The full file name to save the resulting csv file</param>
+        /// <param name="firstColumsToSkip">How many colums should be skip (of binarization)</param>
+        public void GenerateBinaryFormat(Object entity, string filePath, int firstColumsToSkip = 0)
+        {
+            Separator = ",";            
+            // verify if the object is a collection
+            var objs = entity as IList;
+            if (objs != null)
+            {
+                foreach (var obj in objs)
+                {
+                    Map(obj);
+                    // unlike GenerateCsv, here we can't flush each object as we need them in memory
+                    // just reset _rowsPerObject, and create a new line (in that order)
+                    _rowsPerObject = 0;
+                    NextLine();                    
+                }
+            }
+            else
+            {
+                Map(entity);
+            }
+
+            BinarizeRows(firstColumsToSkip);
+            _writer = new StreamWriter(filePath);
+            FlushBinary();
+
+        }
+
+        /// <summary>
         /// Generate a CSV files whit the data of the object
         /// </summary>
         /// <param name="entity">The object to export</param>
         /// <param name="filePath">Full file name where for the Csv File</param>
         public void GenerateCsvAutoMap(Object entity, string filePath)
         {
-            _separator = ",";
+            Separator = ",";
             _writer = new StreamWriter(filePath);
 
             // verify if the object is a collection
@@ -187,34 +252,84 @@ namespace Linq2Csv
 
             AutoMap(entity);
         }
-        
+
         /// <summary>
         /// Add as a record to the records matrix.
         /// </summary>
         /// <param name="columnName">The corresponding column for the record</param>
         /// <param name="value">The value of the record</param>
-        private void AddRecord(string columnName, object value)
+        /// <param name="globalPosition">The position of the column respect the overall file</param>
+        private void AddRecord(string columnName, object value, int globalPosition = -1)
         {
-            int index = _header.IndexOf(columnName);
+            if (!_csvRows.Any()) NextLine();
+
+            // get the index of the corresponding column in the header.
+            int index = _csvHeader.IndexOf(columnName);
             if (index < 0)
             {
-                // new record create a column for it
-                _header.Add(columnName);
-                index = _header.Count -1;
+                if (globalPosition >= 0) // put the column in specific index.
+                {
+                    if (globalPosition >= _csvHeader.Count) // empty cell are needed to create the globalPosition index. 
+                    {
+                        int addRange = globalPosition - _csvHeader.Count; // how many empty cells
+                        for (int i = 0; i < addRange; i++)
+                        {
+                            _csvHeader.Add(string.Empty);
+                            _csvRows.ForEach(x => x.Add(string.Empty));
+                        }
+                    }
+
+                    _csvHeader.Insert(globalPosition, columnName);
+                    _csvRows.ForEach(x => x.Insert(globalPosition, string.Empty));
+                    index = globalPosition;
+                }
+                else // put the column in the first index available (or create one).
+                {
+                    // TODO: Get first empty string (if any) or add it to the end
+                    _csvHeader.Add(columnName);
+                    _csvRows.ForEach(x => x.Add(string.Empty));
+                    index = _csvHeader.Count - 1;
+                }
             }
 
-            if(!_csvRows.Any()) _csvRows.Add(new List<object>());
+            // put the value in the current row
+            _csvRows.Last()[index] = value;
 
-            for (int i = 1; i <= _rowsPerObject; i++)
+            // check if the above cell of the same object are empty
+            // if so, copy the same value on all of them
+            for (int i = 1; i < _rowsPerObject; i++) // the i start at 1, as the 0 position is forced in (_csvRows.Last()[index] = value;)
             {
-                int row = _csvRows.Count - i;
-                while (_csvRows[row].Count <= index)
+                int row = (_csvRows.Count - 1) - i; // last row (_csvRows.Count - 1) minus i
+                while (_csvRows[row].Count <= index) // create the index if needed
                     _csvRows[row].Add("");
-                _csvRows[row][index] = value;
-            }            
+                if(_csvRows[row][index] is string && string.IsNullOrEmpty(_csvRows[row][index].ToString()))   _csvRows[row][index] = value;
+            }
         }
 
-        private void NextLineAutoMap(bool copyPrevious = false)
+        private void AddBinaryRecord(string columnName, object value, bool isBinarized = true)
+        {
+            string strVal = value?.ToString() ?? "na";
+            if (isBinarized)
+            {
+                columnName += ":" + strVal;
+                strVal = "1";
+            }
+
+
+            int index = _binaryHeader.IndexOf(columnName);
+            if (index < 0)
+            {
+                // new header
+                _binaryHeader.Add(columnName);
+                _binaryRows.ForEach(x => x.Add("0"));
+                index = _binaryHeader.Count - 1;
+            }
+
+            _binaryRows.Last()[index] = strVal;
+        }
+
+
+        private void NextLine(bool copyPrevious = false)
         {
             /* When creating a csv, if one objects has a property (list) with two elements (for example)
                then two rows should result in the csv, coping all the base information, 
@@ -231,18 +346,32 @@ namespace Linq2Csv
             }
             else
             {
-                _csvRows.Add(new List<object>());
+                _csvRows.Add(new List<object>(Enumerable.Repeat(string.Empty, _csvHeader.Count)));
                 _rowsPerObject++;
             }            
         }
 
-
+        private void NextBinaryLine()
+        {           
+            // add a new row to the list filled with ceros
+            _binaryRows.Add(Enumerable.Repeat("0", _binaryHeader.Count).ToList());
+        }
+    
         private void WriteHeader()
         {
-            if (!_headerWriten)
+            if (!_csvHeaderWriten)
             {
-                _writer.WriteLine(string.Join(_separator, _header.ToArray()));
-                _headerWriten = true;
+                _writer.WriteLine(string.Join(Separator, _csvHeader.ToArray()));
+                _csvHeaderWriten = true;
+            }
+        }
+
+        private void WriteBinaryHeader()
+        {
+            if (!_binaryHeaderWriten)
+            {
+                _writer.WriteLine(string.Join(Separator, _binaryHeader.ToArray()));
+                _binaryHeaderWriten = true;
             }
         }
 
@@ -254,7 +383,7 @@ namespace Linq2Csv
                 _writer.WriteLine(string.Join(",", row.ToArray()));
             }
             _csvRows.Clear();
-            _rowsPerObject = 1;
+            _rowsPerObject = 0;
         }
 
         /// <summary>
@@ -270,8 +399,26 @@ namespace Linq2Csv
 
             _writer.Close();
             _writer.Dispose();
-            _header.Clear();
+            _csvHeader.Clear();
             _csvRows.Clear();
+            _csvHeaderWriten = false;
+        }
+
+        private void FlushBinary()
+        {
+            WriteBinaryHeader();
+            foreach (var row in _binaryRows)
+            {
+                _writer.WriteLine(string.Join(",", row.ToArray()));
+            }
+
+            _writer.Close();
+            _writer.Dispose();
+            _csvHeader.Clear();
+            _binaryHeader.Clear();
+            _csvRows.Clear();
+            _binaryRows.Clear();
+            _binaryHeaderWriten = false;
         }
 
         /// <summary>

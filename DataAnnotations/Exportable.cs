@@ -27,6 +27,12 @@ namespace Linq2Csv.DataAnnotations
         public int Order { get; set; }
 
         /// <summary>
+        /// Gets or Sets the position of the columns of the overall resulting file.
+        /// If more than one property has the same <para>GlobalOrder</para> value, the first encountered will be considered first
+        /// </summary>
+        public int GlobalOrder { get; set; }
+
+        /// <summary>
         /// Empty contructor.
         /// Initializes the Name to <c>string.Empty</c> and order to <c>int.MaxValue</c>
         /// </summary>
@@ -34,6 +40,7 @@ namespace Linq2Csv.DataAnnotations
         {
             this.Name = string.Empty;
             this.Order = int.MaxValue;
+            this.GlobalOrder = -1;
         }
     }
 }
