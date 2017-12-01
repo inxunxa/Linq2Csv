@@ -1,6 +1,7 @@
 # Linq2CSV
 
-A very basic library to export any C# object to a csv or binarized format file
+A very basic library to export any C# object to a csv or binarized format file.
+To export an 
 
 ## Getting Started
 
@@ -25,6 +26,17 @@ Just include de Linq2Csv.dll to your project references, and add a reference to 
 ```csharp
 using Linq2Csv;
 ```
+
+
+### Configuration options
+-----------------------------------------
+| Property      | Default  | Description           |
+| ------------- |----------|-------------|
+| ShowDebugInfo            | False | Shown in console what's happening in the process|
+| Separator                | , | Separator to use in file, this allow creation of other that csv file formats      |
+| NullValue                | <empty> | What to put when a null valued property is found      |
+| TreatEnumerableAsColumns | False | Each enumerable item will be a Column or a new Row     |
+
 
 
 
