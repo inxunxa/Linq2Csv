@@ -1,9 +1,29 @@
 # Linq2CSV
 
 A very basic library to export any C# object to a csv or binarized format file.
-To export an 
+
+The classes whose objects will be exported should be annotated with the included DataAnnotation tags.
 
 ## Getting Started
+
+Annotate the classes that will be exported
+```c#
+using Linq2Csv.DataAnnotations;
+
+public class User
+{
+	[Exportable(GlobalOrder = 0, Order = 0, Name = "userID")]    
+    public int Id { get; set; }
+
+    [Exportable]
+    public virtual Demographic Demographic { get; set; }
+  
+  	[NonExportable
+  	private string SomeSecreteValue {get; set;}
+     
+}
+```
+
 
 A usage example of the library.
 
